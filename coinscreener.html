@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Crypto Screener</title>
+  <style>
+    :root {
+      --bg-light: #f2f2f2;
+      --text-light: #333;
+      --bg-dark: #1e1e1e;
+      --text-dark: #f9f9f9;
+      --card-bg-dark: #2c2c2c;
+      --green: #28a745;
+    }
+
+    [data-theme="light"] {
+      background-color: var(--bg-light);
+      color: var(--text-light);
+    }
+
+    [data-theme="dark"] {
+      background-color: var(--bg-dark);
+      color: var(--text-dark);
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      padding: 1rem;
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      text-align: center;
+    }
+
+    .toggle-container {
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+
+    .toggle-container label {
+      cursor: pointer;
+      font-size: 1rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+      background-color: white;
+    }
+
+    [data-theme="dark"] table {
+      background-color: var(--card-bg-dark);
+    }
+
+    th, td {
+      padding: 8px;
+      text-align: left;
+      border-bottom: 1px solid #ccc;
+    }
+
+    [data-theme="dark"] th, 
+    [data-theme="dark"] td {
+      border-color: #444;
+    }
+
+    button {
+      margin-top: 1rem;
+      padding: 10px 20px;
+      font-size: 1rem;
+      background-color: var(--green);
+      color: white;
+      border: none;
+      border-radius: 5px;
+    }
+
+    #message {
+      margin-top: 1rem;
+      font-weight: bold;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<h1>📈 Crypto Screener (Gecko + Cap)</h1>
+
+<div class="toggle-container">
+  <label>
+    <input type="checkbox" id="darkToggle"> 🌙 Dark Mode
+  </label>
+</div>
+
+<div id="message">⏳ Loading data...</div>
+
+<table id="crypto-table" style="display:none;">
+  <thead>
+    <tr>
+      <th>Source</th>
+      <th>Name</th>
+      <th>Price</th>
+      <th>Market Cap</th>
+      <th>24h Volume</th>
+      <th>24h Change</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<button id="export" style="display:none;">📤 Export to CSV</button>
+
+<script>
+  async function fetchCoinGecko() {
+    const res = await fetch("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&per_page=250&page=1");
+    const data = await res.json();
+    return data.map(coin => ({
+      source: "CoinGecko",
+      name: coin.name,
+      price: coin.current_price,
+      marketCap: coin.market_cap,
+      volume: coin.total_volume,
+      change: coin.price_change_percentage_24h
+    }));
+  }
+
+  async function fetchCoinCap() {
+    const res = await fetch("https://api.coincap.io/v2/assets?limit=200");
+    const data = await res.json();
+    return data.data.map(coin => ({
+      source: "CoinCap",
+      name: coin.name,
+      price: parseFloat(coin.priceUsd),
+      marketCap: parseFloat(coin.marketCapUsd),
+      volume: parseFloat(coin.volumeUsd24Hr),
+      change: parseFloat(coin.changePercent24Hr)
+    }));
+  }
+
+  function filterCoins(coins) {
+    return coins.filter(coin =>
+      coin.marketCap >= 500_000_000 &&
+      coin.volume >= 100_000_000 &&
+      coin.change >= 10
+    );
+  }
+
+  function updateTable(coins) {
+    const table = document.getElementById("crypto-table");
+    const tbody = table.querySelector("tbody");
+    tbody.innerHTML = "";
+
+    coins.forEach(coin => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${coin.source}</td>
+        <td>${coin.name}</td>
+        <td>$${coin.price.toFixed(2)}</td>
+        <td>$${coin.marketCap.toLocaleString()}</td>
+        <td>$${coin.volume.toLocaleString()}</td>
+        <td>${coin.change.toFixed(2)}%</td>
+      `;
+      tbody.appendChild(row);
+    });
+
+    table.style.display = coins.length ? "table" : "none";
+    document.getElementById("export").style.display = coins.length ? "inline-block" : "none";
+    document.getElementById("message").textContent = coins.length
+      ? `✅ ${coins.length} coin(s) matched your criteria.`
+      : "❌ No matching coins found.";
+  }
+
+  function exportToCSV() {
+    const rows = [["Source", "Name", "Price", "Market Cap", "24h Volume", "24h Change"]];
+    const tableRows = document.querySelectorAll("#crypto-table tbody tr");
+    tableRows.forEach(row => {
+      const cells = row.querySelectorAll("td");
+      rows.push(Array.from(cells).map(cell => cell.textContent));
+    });
+    const csv = rows.map(r => r.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "crypto_screener.csv";
+    link.click();
+  }
+
+  document.getElementById("export").addEventListener("click", exportToCSV);
+
+  async function loadData() {
+    try {
+      const [gecko, cap] = await Promise.all([fetchCoinGecko(), fetchCoinCap()]);
+      const all = filterCoins([...gecko, ...cap]);
+      updateTable(all);
+    } catch (err) {
+      console.error(err);
+      document.getElementById("message").textContent = "⚠️ Error loading data.";
+    }
+  }
+
+  // Dark mode logic
+  const toggle = document.getElementById("darkToggle");
+  const html = document.documentElement;
+
+  function applyTheme(theme) {
+    html.setAttribute("data-theme", theme);
+    toggle.checked = theme === "dark";
+    localStorage.setItem("theme", theme);
+  }
+
+  toggle.addEventListener("change", () => {
+    applyTheme(toggle.checked ? "dark" : "light");
+  });
+
+  // Load saved theme
+  const savedTheme = localStorage.getItem("theme") || "light";
+  applyTheme(savedTheme);
+
+  loadData();
+</script>
+
+</body>
+</html>
